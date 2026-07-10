@@ -45,22 +45,17 @@ resource "aws_route_table_association" "app" {
   route_table_id = aws_route_table.app.id
 }
 
-# Equivalent of the Azure NSG. Note: AWS Security Groups only support
-# Allow rules (no Deny), so the Day 5 auto-block mechanism cannot use
-# this resource — it will use a Network ACL instead (added at Day 5),
-# which is stateless and supports explicit Deny rules with numeric
-# ordering, matching the Azure NSG priority model.
 resource "aws_security_group" "app" {
   name        = "app-sg-${var.prefix}"
   description = "Security group for the LearningSteps app instance"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "SSH (locked down to specific IP on Day 1)"
+    description = "SSH access restricted to admin IP"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["91.2.132.107/32"]
   }
 
   ingress {
@@ -91,13 +86,6 @@ resource "aws_security_group" "app" {
   })
 }
 
-# Day 4's RDS migration adds a dedicated private subnet for PostgreSQL here
-# (aws_subnet.db, no route to the internet gateway), deliberately not part
-# of the baseline. See docs/day4-data-isolation.md once written.
-
-# RDS requires a subnet group spanning 2+ AZs even for single-AZ
-# deployments. This second subnet exists only to satisfy that
-# requirement — the DB itself stays single-AZ (no failover).
 resource "aws_subnet" "db_secondary" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.2.0/24"

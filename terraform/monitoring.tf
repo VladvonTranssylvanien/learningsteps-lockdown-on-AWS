@@ -27,7 +27,7 @@ resource "aws_network_acl" "app" {
     rule_no    = 1000
     protocol   = "tcp"
     action     = "allow"
-    cidr_block = "0.0.0.0/0"
+    cidr_block = "91.2.132.107/32"
     from_port  = 22
     to_port    = 22
   }
