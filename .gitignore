@@ -1,0 +1,18 @@
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.zip
+
+# Secrets / keys
+*.pem
+*.key
+.env
+
+# Backups
+backup.sql
+
+# macOS
+.DS_Store

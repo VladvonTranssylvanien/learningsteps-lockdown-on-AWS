@@ -1,0 +1,6 @@
+prefix     = "learningsteps"
+aws_region = "eu-central-1"
+
+db_admin_username = "psqladmin"
+db_admin_password = "CHANGE_ME_STRONG_PASSWORD"
+db_name            = "learning_journal"

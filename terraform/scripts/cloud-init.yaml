@@ -1,0 +1,50 @@
+#cloud-config
+
+# The PostgreSQL server is version 16 (postgresql.tf), but Ubuntu 22.04's
+# default "postgresql-client" package resolves to v14 — pg_dump refuses to
+# dump from a newer major server version ("aborting because of server
+# version mismatch"), which breaks Day 4's backup-before-migration step.
+# Confirmed by testing. Fix: add the PGDG apt repo and install
+# postgresql-client-16 explicitly instead of the distro's default package.
+apt:
+  sources:
+    pgdg.list:
+      source: "deb [signed-by=$KEY_FILE] https://apt.postgresql.org/pub/repos/apt jammy-pgdg main"
+      keyid: B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+      keyserver: keyserver.ubuntu.com
+
+packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - git
+  - postgresql-client-16
+
+write_files:
+  - path: /etc/systemd/system/learningsteps.service
+    content: |
+      [Unit]
+      Description=LearningSteps API
+      After=network.target
+
+      [Service]
+      Type=simple
+      WorkingDirectory=/opt/learningsteps/api
+      Environment=DATABASE_URL=${database_url}
+      ExecStart=/opt/learningsteps/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - git clone https://github.com/CyberstepsDE/learningsteps.git /opt/learningsteps
+  - python3 -m venv /opt/learningsteps/venv
+  - /opt/learningsteps/venv/bin/pip install --upgrade pip -q
+  - /opt/learningsteps/venv/bin/pip install -r /opt/learningsteps/api/requirements.txt -q
+  - until psql "${database_url}" -c '\q' 2>/dev/null; do sleep 5; done
+  - psql "${database_url}" -f /opt/learningsteps/database_setup.sql
+  - systemctl daemon-reload
+  - systemctl enable learningsteps
+  - systemctl start learningsteps
