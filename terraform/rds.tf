@@ -2,7 +2,7 @@
 # starting point. Day 4 migrates this to a private subnet with no public
 # access, mirroring the Azure Private Link migration.
 resource "aws_security_group" "db" {
-  name        = "sg-db-${var.prefix}"
+  name        = "db-sg-${var.prefix}"
   description = "Security group for the LearningSteps database"
   vpc_id      = aws_vpc.main.id
 
@@ -41,7 +41,15 @@ resource "aws_db_instance" "main" {
   password               = var.db_admin_password
   publicly_accessible    = true
   vpc_security_group_ids = [aws_security_group.db.id]
+  db_subnet_group_name   = aws_db_subnet_group.main.name
   skip_final_snapshot    = true
+
+  tags = local.common_tags
+}
+
+resource "aws_db_subnet_group" "main" {
+  name       = "dbsubnet-${var.prefix}"
+  subnet_ids = [aws_subnet.app.id, aws_subnet.db_secondary.id]
 
   tags = local.common_tags
 }

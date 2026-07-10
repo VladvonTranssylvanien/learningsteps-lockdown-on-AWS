@@ -51,7 +51,7 @@ resource "aws_route_table_association" "app" {
 # which is stateless and supports explicit Deny rules with numeric
 # ordering, matching the Azure NSG priority model.
 resource "aws_security_group" "app" {
-  name        = "sg-app-${var.prefix}"
+  name        = "app-sg-${var.prefix}"
   description = "Security group for the LearningSteps app instance"
   vpc_id      = aws_vpc.main.id
 
@@ -94,3 +94,16 @@ resource "aws_security_group" "app" {
 # Day 4's RDS migration adds a dedicated private subnet for PostgreSQL here
 # (aws_subnet.db, no route to the internet gateway), deliberately not part
 # of the baseline. See docs/day4-data-isolation.md once written.
+
+# RDS requires a subnet group spanning 2+ AZs even for single-AZ
+# deployments. This second subnet exists only to satisfy that
+# requirement — the DB itself stays single-AZ (no failover).
+resource "aws_subnet" "db_secondary" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.2.0/24"
+  availability_zone = "${var.aws_region}b"
+
+  tags = merge(local.common_tags, {
+    Name = "subnet-db-secondary-${var.prefix}"
+  })
+}
