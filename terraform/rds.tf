@@ -7,11 +7,11 @@ resource "aws_security_group" "db" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "PostgreSQL (open to any IP at baseline, insecure by design)"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "PostgreSQL restricted to app tier only, network-layer mitigation ahead of Day 4 private-subnet migration"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app.id]
   }
 
   egress {
