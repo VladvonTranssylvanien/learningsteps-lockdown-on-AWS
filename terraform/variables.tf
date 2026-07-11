@@ -33,3 +33,9 @@ variable "db_name" {
   type        = string
   default     = "learning_journal"
 }
+
+variable "prefix_domain" {
+  description = "Public domain (nip.io) used for TLS and OAuth callback URLs"
+  type        = string
+  default     = "3.70.127.59.nip.io"
+}
