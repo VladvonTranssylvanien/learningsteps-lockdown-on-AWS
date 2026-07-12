@@ -27,6 +27,7 @@ This is not a copy-paste port. Every piece was re-derived from first principles 
 - [Day 3 — Identity](#day-3--identity)
 - [Day 4 — Data Isolation](#day-4--data-isolation)
 - [Day 5 — Monitoring & Incident Response](#day-5--monitoring--incident-response)
+- [How Attacker Detection & Geolocation Works](#how-attacker-detection--geolocation-works)
 - [Beyond the Requirements](#beyond-the-requirements)
 - [Repository Structure](#repository-structure)
 - [Deploying This Yourself](#deploying-this-yourself)
@@ -37,44 +38,36 @@ This is not a copy-paste port. Every piece was re-derived from first principles 
 ## Architecture
 
 ```mermaid
-graph TD
+graph TB
     Internet((Internet))
 
-    subgraph AWS["AWS Account — eu-central-1"]
-        direction LR
-
-        subgraph Support["Supporting Services"]
-            direction TB
-            Cognito["Cognito<br/>Identity"]
-            Secrets["Secrets Manager<br/>DB password"]
-            CT["CloudTrail<br/>Audit trail"]
-            SNS["SNS<br/>Alerts"]
+    subgraph VPC["VPC 10.0.0.0/16"]
+        subgraph AppSubnet["subnet-app 10.0.1.0/24"]
+            NACL["Network ACL<br/>SSH restricted, auto-block deny rules"]
+            SG_APP["Security Group<br/>SSH: admin IP only"]
+            EC2["EC2 t3.small<br/>NPMplus + CrowdSec + oauth2-proxy<br/>FastAPI app"]
         end
-
-        subgraph Net["VPC 10.0.0.0/16"]
-            direction TB
-            EIP["Elastic IP"]
-            NACL["Network ACL<br/>auto-block"]
-            SG["Security Group<br/>SSH: admin IP only"]
-            EC2["EC2 t3.small<br/>NPMplus + CrowdSec<br/>oauth2-proxy + FastAPI"]
-            RDS[("RDS PostgreSQL<br/>private + encrypted")]
-        end
-
-        subgraph Detect["Detection & Response"]
-            direction TB
-            CW["CloudWatch<br/>Logs + Dashboard"]
-            Lambda["Lambda<br/>WAF detector"]
+        subgraph DBSubnet["subnet-db-secondary 10.0.2.0/24"]
+            RDS[("RDS PostgreSQL<br/>publicly_accessible = false<br/>storage_encrypted = true")]
         end
     end
 
-    Internet -->|HTTPS| EIP --> NACL --> SG --> EC2
-    EC2 --> Secrets
-    EC2 --> Cognito
-    EC2 --> CW
-    CW -->|every 5 min| Lambda
+    Cognito["Amazon Cognito<br/>User Pool + App Client"]
+    Secrets["Secrets Manager<br/>DB password"]
+    Lambda["Lambda<br/>WAF attack detector"]
+    CW["CloudWatch<br/>Logs + Alarms + Dashboard"]
+    CT["CloudTrail<br/>Multi-region audit trail"]
+    SNS["SNS<br/>Security email alerts"]
+    EIP["Elastic IP<br/>Stable public address"]
+
+    Internet -->|HTTPS| EIP --> NACL --> SG_APP --> EC2
+    EC2 -->|IAM Role, no static creds| Secrets
+    EC2 -->|OIDC| Cognito
+    EC2 -->|nginx JSON logs| CW
+    CW -->|EventBridge, every 5 min| Lambda
     Lambda -->|auto-block| NACL
-    EC2 -.->|private only| RDS
-    CT --> SNS
+    EC2 -.->|private, no public access| RDS
+    CT -->|root/IAM change metrics| SNS
 
     classDef compute fill:#1a73e8,stroke:#0d47a1,color:#ffffff,stroke-width:2px
     classDef data fill:#0f9d58,stroke:#0d652d,color:#ffffff,stroke-width:2px
@@ -84,9 +77,9 @@ graph TD
 
     class EC2 compute
     class RDS data
-    class Lambda,CW detect
-    class EIP,NACL,SG net
-    class Cognito,Secrets,CT,SNS support
+    class Lambda detect
+    class EIP,NACL,SG_APP net
+    class Cognito,Secrets,CW,CT,SNS support
 ```
 
 ---
@@ -131,56 +124,52 @@ The full account of AWS resources, all managed by Terraform:
 
 ## What's Better on AWS
 
-Real advantages found while building this, not just "AWS won" for its own sake:
-
 - **RDS's network migration is non-destructive.** Flipping `publicly_accessible` to `false` is a mutable, in-place update — no destroy/recreate, no data loss, no restore needed. Azure's equivalent (VNet Integration) is a `ForceNew` attribute that destroys and recreates the entire database server. Day 4 on Azure *requires* a backup/restore because of this; on AWS it's optional discipline, not a hard requirement.
 - **SSM Session Manager needs no extension install.** Azure's `AADSSHLoginForLinuxExtension` has to be explicitly installed and can silently fail if the VM has no public IP (a real, documented Azure Policy conflict from the original project). SSM works purely through the IAM Role and the SSM Agent that ships pre-installed on Amazon Linux/Ubuntu AMIs — no extension, no NIC-level public IP requirement at all.
-- **CrowdSec's `whitelist-good-actors` and allowlist system is more transparent and scriptable than CrowdSec-on-Azure's equivalent config**, since `cscli` commands are identical either way but AWS's IAM model made it trivial to grant the Lambda exactly the two permissions it needs (`DescribeNetworkAcls`, `CreateNetworkAclEntry`) with no broader blast radius.
-- **CloudTrail is genuinely free at the tier used here.** Azure Activity Log is also free, but CloudTrail's multi-region, multi-account design (even though this project uses one region/account) is a more mature, more commonly-referenced skill in the industry.
+- **CrowdSec's allowlist system maps cleanly onto IAM least-privilege.** The Lambda only needed two permissions (`DescribeNetworkAcls`, `CreateNetworkAclEntry`) to fully automate the response — a tightly scoped IAM policy that's trivial to reason about.
+- **CloudTrail is genuinely free at the tier used here** and its multi-region, multi-account design is a more commonly-referenced industry skill than Azure Activity Log, even for a single-region project like this one.
 
 ---
 
 ## What's Worse or Harder on AWS
 
-Equally real friction points, documented honestly rather than glossed over:
-
-- **No free FQDN for EC2.** Azure's `domain_name_label` gives a working DNS name (`<label>.<region>.cloudapp.azure.com`) automatically, at zero cost. AWS gives nothing equivalent for EC2 — solved here with `nip.io`, a third-party wildcard DNS service, which works but is a workaround, not a first-party feature.
-- **Security Groups have no Deny rules at all.** Azure NSGs support Allow *and* Deny with priorities, which the original Day 5 auto-block relies on directly. AWS Security Groups are Allow-only — the Day 5 auto-block here had to be built on a **Network ACL** instead, a genuinely different resource type with its own numbering and statelessness quirks, adding real complexity that Azure's model didn't require.
-- **RDS requires a multi-AZ subnet group even for a single-AZ instance.** A second, otherwise-unused subnet had to be created purely to satisfy this requirement — an extra resource with no functional purpose beyond satisfying an API constraint.
-- **`aws login`'s new browser-based credential flow doesn't integrate with Terraform's AWS provider out of the box.** It required manually bridging `~/.aws/config` with a `credential_process` pointing at a named profile — an extra, undocumented step that Azure CLI's `az login` doesn't need (Terraform's `azurerm` provider reads Azure CLI credentials natively).
-- **RDS password validation is stricter and less obvious.** `/`, `@`, `"`, and spaces are silently rejected with a generic error, discovered only by trial and error, not surfaced anywhere in the Terraform plan output.
-- **GuardDuty and Security Hub are unavailable on the Free Plan.** Both are core AWS security services, but both return `SubscriptionRequiredException` without an upgrade to a Paid Plan — meaning genuinely important detection tooling was out of reach for a $0 budget in a way that had no equivalent limitation on the Azure side (Sentinel was fully usable throughout the Azure project).
+- **No free FQDN for EC2.** Azure's `domain_name_label` gives a working DNS name automatically, at zero cost. AWS gives nothing equivalent for EC2 — solved here with `nip.io`, a third-party wildcard DNS service, which works but is a workaround, not a first-party feature.
+- **Security Groups have no Deny rules at all.** Azure NSGs support Allow *and* Deny with priorities, which the original Day 5 auto-block relies on directly. AWS Security Groups are Allow-only — the Day 5 auto-block here had to be built on a **Network ACL** instead, a genuinely different resource type with its own numbering and statelessness quirks.
+- **RDS requires a multi-AZ subnet group even for a single-AZ instance.** A second, otherwise-unused subnet had to be created purely to satisfy this requirement.
+- **`aws login`'s browser-based credential flow doesn't integrate with Terraform's AWS provider out of the box.** It required manually bridging `~/.aws/config` with a `credential_process` pointing at a named profile.
+- **RDS password validation is stricter and less obvious.** `/`, `@`, `"`, and spaces are silently rejected with a generic error.
+- **GuardDuty and Security Hub are unavailable on the Free Plan.** Both return `SubscriptionRequiredException` without a Paid Plan upgrade — meaning genuinely important detection tooling was out of reach for a $0 budget, with no equivalent limitation on the Azure side.
 
 ---
 
 ## Challenges Encountered
 
-- **CrowdSec blocking its own admin traffic.** The WAF's `access_by_lua_block` inspects *all* traffic through NPMplus, including the SSM-tunneled connection to NPMplus's own admin panel on port 81. Repeated admin actions were misclassified as an attack and the admin's own IP got auto-banned — solved with a dedicated CrowdSec allowlist, but only found by directly reading nginx's error logs during a live outage.
-- **CloudWatch Logs Insights couldn't parse the log format at first.** rsyslog was writing a syslog-prefixed line (`Jul 12 13:11:10 host nginx: {json}`) instead of clean JSON, so `fields`/`filter` in Logs Insights silently matched nothing. Fixed with an rsyslog template (`%msg:2:$%`) that strips the prefix before it ever reaches the log file CloudWatch Agent tails.
-- **The RDS country field was in an undocumented location.** CrowdSec's decision JSON exposes the attacker's country as `source.cn`, not a top-level `country` field as first assumed — found only by dumping and inspecting the raw JSON directly, not from any CrowdSec documentation.
-- **A real, unprompted attacker showed up during Day 5 testing.** While validating the auto-block pipeline with a controlled test payload, the Lambda also caught and blocked a second, genuine attacker (a different IP, from a different country) probing the same endpoint — unplanned, but a strong live confirmation that the detection pipeline works against real traffic, not just staged tests.
+- **CrowdSec blocking its own admin traffic.** The WAF's `access_by_lua_block` inspects all traffic through NPMplus, including the SSM-tunneled connection to NPMplus's own admin panel on port 81. Repeated admin actions were misclassified as an attack and the admin's own IP got auto-banned — solved with a dedicated CrowdSec allowlist, found only by directly reading nginx's error logs during a live outage.
+- **CloudWatch Logs Insights couldn't parse the log format at first.** rsyslog was writing a syslog-prefixed line instead of clean JSON, so `fields`/`filter` silently matched nothing. Fixed with an rsyslog template (`%msg:2:$%`) that strips the prefix before CloudWatch Agent tails the file.
+- **The attacker's country field was in an undocumented location.** CrowdSec's decision JSON exposes it as `source.cn`, not a top-level `country` field as first assumed — found only by dumping and inspecting the raw JSON directly.
+- **A real, unprompted attacker showed up during Day 5 testing.** While validating the auto-block pipeline with a controlled test payload, the Lambda also caught and blocked a second, genuine attacker (a different IP, from a different country) probing the same endpoint — unplanned, but strong live confirmation the pipeline works against real traffic.
 
 ---
 
 ## Lessons Learned
 
-- **A resource being *mutable* instead of `ForceNew` is a real architectural signal, not a minor implementation detail.** It changes whether "hardening" work needs a backup plan or not, and it's worth checking a provider's schema for this before assuming two clouds' equivalent features behave the same way operationally.
-- **Cloud-native security tooling (WAFs, bouncers, agents) needs to be told about its own management traffic explicitly**, or it will eventually treat legitimate admin access as an attack. This is a pattern, not a one-off bug — worth designing for from day one on any project with a self-hosted WAF.
-- **Free-tier boundaries are a real constraint on tool choice, not just a pricing footnote.** Not having GuardDuty available meant building custom detection logic (the Lambda) that a Paid Plan account would likely never need to write by hand — which, incidentally, is why that Lambda exists here in code, reviewable and understood, rather than being an opaque managed service.
-- **Translating an architecture between clouds is a different skill from building it once.** The parts that transferred cleanly (NPMplus, CrowdSec, the application itself) did so because they were already cloud-agnostic by design. The parts that required real rework (auto-block mechanism, DNS, keyless access) were exactly the parts most tightly coupled to Azure-specific primitives — a useful signal for how to design future infrastructure to be more portable from the start.
+- **A resource being *mutable* instead of `ForceNew` is a real architectural signal, not a minor implementation detail.** It changes whether "hardening" work needs a backup plan or not.
+- **Cloud-native security tooling needs to be told about its own management traffic explicitly**, or it will eventually treat legitimate admin access as an attack — a pattern worth designing for from day one on any project with a self-hosted WAF.
+- **Free-tier boundaries are a real constraint on tool choice, not just a pricing footnote.** Not having GuardDuty meant building custom detection logic that a Paid Plan account would likely never write by hand — which is why the Lambda here exists as reviewable code rather than an opaque managed service.
+- **Translating an architecture between clouds is a different skill from building it once.** The parts that transferred cleanly (NPMplus, CrowdSec, the app itself) did so because they were already cloud-agnostic by design; the parts requiring real rework (auto-block, DNS, keyless access) were the parts most tightly coupled to Azure-specific primitives.
 
 ---
 
 ## Zero-Cost Design Decisions
 
-This project runs entirely on **AWS Free Plan**, which structurally cannot incur real charges (exceeding free-tier services requires an explicit upgrade to a Paid Plan, which was never done):
+This project runs entirely on **AWS Free Plan**, which structurally cannot incur real charges:
 
 - **`nip.io` instead of a paid domain** — zero cost, zero DNS setup, a real trusted Let's Encrypt certificate.
-- **No NAT Gateway** — the single largest hidden cost trap in AWS (~$0.045/hr + data). Avoided by keeping the app in a public subnet with a tight Security Group.
-- **RDS storage capped at 20GB** — the Azure original used 32GB; RDS Free Tier only covers 20GB, so storage was reduced accordingly (documented trade-off, not an oversight).
-- **No AWS WAF (managed)** — billed per Web ACL, per rule, per request. CrowdSec (self-hosted, same tool as Azure) used instead, free and arguably more transparent about what it blocks.
-- **GuardDuty and Security Hub attempted, not included** — both need a Paid Plan; left out rather than accidentally triggering a billing tier change.
-- **Elastic IP** — free while attached to a running instance, which it always is here; added specifically to stop TLS certs, Cognito callback URLs, and oauth2-proxy config from breaking on every EC2 stop/start.
+- **No NAT Gateway** — the single largest hidden cost trap in AWS. Avoided by keeping the app in a public subnet with a tight Security Group.
+- **RDS storage capped at 20GB** — the Azure original used 32GB; RDS Free Tier only covers 20GB.
+- **No AWS WAF (managed)** — billed per Web ACL/rule/request. CrowdSec used instead, free and self-hosted like the Azure original.
+- **GuardDuty and Security Hub attempted, not included** — both need a Paid Plan.
+- **Elastic IP** — free while attached to a running instance; stops TLS certs, Cognito callback URLs, and oauth2-proxy config from breaking on every EC2 stop/start.
 
 ---
 
@@ -207,6 +196,11 @@ This project runs entirely on **AWS Free Plan**, which structurally cannot incur
 
 - NPMplus reverse proxy issues a Let's Encrypt certificate for `<elastic-ip>.nip.io`.
 - CrowdSec runs as a bouncer in front of NPMplus, using the real OWASP Core Rule Set (`appsec-crs`) to detect SQLi/XSS payloads.
+- The NPMplus admin panel (port 81) is never exposed publicly — reached only through an SSM port-forwarding tunnel.
+
+**SSM tunnel opened to reach the NPMplus admin panel privately:**
+
+![SSM port forwarding](docs/screenshots/start-port-forwarding.png)
 
 **Certificate issued and validated (`HTTP/2`, real Let's Encrypt cert):**
 
@@ -273,13 +267,29 @@ The pipeline: `nginx access log → JSON forwarder → CloudWatch Logs → Logs 
 
 ![Logs Insights](docs/screenshots/day5-logs-insights.png)
 
-**Lambda's automatic Network ACL deny rules — both the test IP and a real, unprompted attacker caught live:**
+**Lambda's automatic Network ACL deny rules — the test IP (`87.149.114.205`) and a real, unprompted attacker (`157.143.3.35`) caught live, both at rule numbers below 100 so they always evaluate before the baseline Allow rules:**
 
 ![NACL block](docs/screenshots/day5-nacl-block.png)
 
 **Geographic dashboard of blocked attackers, built from CrowdSec decision data:**
 
 ![Dashboard](docs/screenshots/day5-dashboard.png)
+
+---
+
+## How Attacker Detection & Geolocation Works
+
+The detection pipeline runs on two parallel tracks that feed the same Network ACL:
+
+**1. WAF-level blocking (CrowdSec, real-time).** Every request through NPMplus is inspected in Lua (`access_by_lua_block`) against CrowdSec's local decision engine, which evaluates the OWASP Core Rule Set (`appsec-crs`) plus behavioral scenarios (`base-http-scenarios`, `http-cve`). A match returns `403` immediately, in milliseconds, with no round-trip to AWS at all — this is what Day 2's screenshot shows.
+
+**2. Log-based detection and network-layer auto-block (Lambda, every 5 minutes).** This is the slower, AWS-native layer that Day 5 tests:
+
+- nginx logs every request as JSON (`remote_addr`, `status`, `uri`, `time`) via a Python forwarder into syslog, cleaned by an rsyslog template, and tailed by the CloudWatch Agent into a Log Group.
+- Every 5 minutes, EventBridge triggers the `waf-attack-detector` Lambda, which runs a CloudWatch Logs Insights query: count `403` responses per `remote_addr` over the last 5 minutes, keep only IPs with 5 or more.
+- For each IP over the threshold, the Lambda calls `ec2:CreateNetworkAclEntry`, inserting a `Deny` rule at a rule number below 100 — guaranteeing it evaluates before the Network ACL's baseline `Allow` rules (1000+), which is the same priority-ordering principle the Azure original uses in its NSG.
+
+**Geolocation.** The country shown on the dashboard doesn't come from AWS at all — CrowdSec resolves it internally (MaxMind-based GeoIP, bundled with the `crowdsec` container) and exposes it per-decision as `source.cn` in `cscli decisions list -o json`. A small script (`geo-export/export-geo-metrics.sh`) reads that JSON, counts decisions per country, and publishes them as a CloudWatch custom metric (`LearningSteps/CrowdSec`, `BlockedAttackers`, dimensioned by `Country`) — which is what the dashboard's pie chart visualizes. AWS never performs the IP-to-country lookup itself in this pipeline; it only stores and displays a number CrowdSec already computed.
 
 ---
 
