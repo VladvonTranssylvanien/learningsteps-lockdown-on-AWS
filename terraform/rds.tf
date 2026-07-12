@@ -36,6 +36,7 @@ resource "aws_db_instance" "main" {
   instance_class         = "db.t3.micro"
   allocated_storage      = 20
   storage_type           = "gp2"
+  storage_encrypted      = true
   db_name                = var.db_name
   username               = var.db_admin_username
   password               = var.db_admin_password
