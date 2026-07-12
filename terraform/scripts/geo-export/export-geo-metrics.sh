@@ -1,8 +1,10 @@
 #!/bin/bash
 # Exports CrowdSec decision countries as CloudWatch custom metrics,
-# giving a lightweight geographic view of blocked attackers —
+# giving a lightweight geographic view of blocked attackers -
 # equivalent to the Sentinel Workbook geographic visualization bonus
-# from the Azure original project.
+# from the Azure original project. Country code is read from the
+# decision's "source.cn" field (confirmed via live JSON inspection),
+# not a top-level "country" field.
 set -euo pipefail
 
 REGION="eu-central-1"
@@ -19,8 +21,8 @@ if not data:
 
 countries = Counter()
 for d in data:
-    country = d.get('origin', {}) if isinstance(d.get('origin'), dict) else None
-    c = d.get('country') or 'Unknown'
+    source = d.get('source', {})
+    c = source.get('cn') or 'Unknown'
     countries[c] += 1
 
 for country, count in countries.items():
