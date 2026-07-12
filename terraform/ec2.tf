@@ -32,3 +32,17 @@ resource "aws_instance" "vm" {
     Name = "vm-${var.prefix}"
   })
 }
+
+# Elastic IP: keeps the public IP stable across stop/start cycles.
+# Without this, every restart gets a new IP, breaking the TLS cert
+# (bound to <ip>.nip.io), the Cognito callback URL, and the
+# oauth2-proxy redirect-url, all of which would need manual updates.
+# Free while attached to a running instance.
+resource "aws_eip" "vm" {
+  instance = aws_instance.vm.id
+  domain   = "vpc"
+
+  tags = merge(local.common_tags, {
+    Name = "eip-${var.prefix}-vm"
+  })
+}
