@@ -33,40 +33,56 @@ Everything below was built and tested live, with actual attacks generated, actua
 ## Architecture
 
 ```mermaid
-graph TB
+graph TD
     Internet((Internet))
 
-    subgraph VPC["VPC 10.0.0.0/16"]
-        subgraph AppSubnet["subnet-app 10.0.1.0/24"]
-            NACL["Network ACL<br/>SSH restricted, auto-block deny rules"]
-            SG_APP["Security Group<br/>SSH: admin IP only"]
-            EC2["EC2 t3.small<br/>NPMplus + CrowdSec + oauth2-proxy<br/>FastAPI app"]
+    subgraph AWS["AWS Account — eu-central-1"]
+        direction LR
+
+        subgraph Support["Supporting Services"]
+            direction TB
+            Cognito["Cognito<br/>Identity"]
+            Secrets["Secrets Manager<br/>DB password"]
+            CT["CloudTrail<br/>Audit trail"]
+            SNS["SNS<br/>Alerts"]
         end
-        subgraph DBSubnet["subnet-db-secondary 10.0.2.0/24"]
-            RDS[("RDS PostgreSQL<br/>publicly_accessible = false<br/>storage_encrypted = true")]
+
+        subgraph Net["VPC 10.0.0.0/16"]
+            direction TB
+            EIP["Elastic IP"]
+            NACL["Network ACL<br/>auto-block"]
+            SG["Security Group<br/>SSH: admin IP only"]
+            EC2["EC2 t3.small<br/>NPMplus + CrowdSec<br/>oauth2-proxy + FastAPI"]
+            RDS[("RDS PostgreSQL<br/>private + encrypted")]
+        end
+
+        subgraph Detect["Detection & Response"]
+            direction TB
+            CW["CloudWatch<br/>Logs + Dashboard"]
+            Lambda["Lambda<br/>WAF detector"]
         end
     end
 
-    Cognito["Amazon Cognito<br/>User Pool + App Client"]
-    Secrets["Secrets Manager<br/>DB password"]
-    Lambda["Lambda<br/>WAF attack detector"]
-    CW["CloudWatch<br/>Logs + Alarms + Dashboard"]
-    CT["CloudTrail<br/>Multi-region audit trail"]
-    SNS["SNS<br/>Security email alerts"]
-    EIP["Elastic IP<br/>Stable public address"]
-
-    Internet -->|HTTPS| EIP --> NACL --> SG_APP --> EC2
-    EC2 -->|IAM Role, no static creds| Secrets
-    EC2 -->|OIDC| Cognito
-    EC2 -->|nginx JSON logs| CW
-    CW -->|EventBridge, every 5 min| Lambda
+    Internet -->|HTTPS| EIP --> NACL --> SG --> EC2
+    EC2 --> Secrets
+    EC2 --> Cognito
+    EC2 --> CW
+    CW -->|every 5 min| Lambda
     Lambda -->|auto-block| NACL
-    EC2 -.->|private, no public access| RDS
-    CT -->|root/IAM change metrics| SNS
+    EC2 -.->|private only| RDS
+    CT --> SNS
 
-    style EC2 fill:#d4f1f4,stroke:#007acc,stroke-width:2px
-    style RDS fill:#d4f4d4,stroke:#009900,stroke-width:2px
-    style Lambda fill:#fff4d4,stroke:#cc8800,stroke-width:2px
+    classDef compute fill:#1a73e8,stroke:#0d47a1,color:#ffffff,stroke-width:2px
+    classDef data fill:#0f9d58,stroke:#0d652d,color:#ffffff,stroke-width:2px
+    classDef detect fill:#f9ab00,stroke:#e37400,color:#000000,stroke-width:2px
+    classDef net fill:#5f6368,stroke:#3c4043,color:#ffffff,stroke-width:2px
+    classDef support fill:#e8eaed,stroke:#9aa0a6,color:#000000,stroke-width:1px
+
+    class EC2 compute
+    class RDS data
+    class Lambda,CW detect
+    class EIP,NACL,SG net
+    class Cognito,Secrets,CT,SNS support
 ```
 
 ---
