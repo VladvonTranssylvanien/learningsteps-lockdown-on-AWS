@@ -26,6 +26,7 @@ resource "aws_instance" "vm" {
     db_admin_username = var.db_admin_username
     db_host           = aws_db_instance.main.address
     db_name           = var.db_name
+    log_group_name    = aws_cloudwatch_log_group.nginx.name
   }))
 
   depends_on = [

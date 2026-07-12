@@ -50,3 +50,10 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable learningsteps
   - systemctl start learningsteps
+  - curl -fsSL https://raw.githubusercontent.com/VladvonTranssylvanien/learningsteps-lockdown-on-AWS/main/terraform/scripts/setup-npmplus.sh -o /tmp/setup-npmplus.sh
+  - bash /tmp/setup-npmplus.sh
+  - curl -fsSL https://raw.githubusercontent.com/VladvonTranssylvanien/learningsteps-lockdown-on-AWS/main/terraform/scripts/setup-json-logging.sh -o /tmp/setup-json-logging.sh
+  - bash /tmp/setup-json-logging.sh
+  - curl -fsSL https://raw.githubusercontent.com/VladvonTranssylvanien/learningsteps-lockdown-on-AWS/main/terraform/scripts/setup-cloudwatch-logging.sh -o /tmp/setup-cloudwatch-logging.sh
+  - sed -i "s|\${log_group_name}|${log_group_name}|" /tmp/setup-cloudwatch-logging.sh
+  - bash /tmp/setup-cloudwatch-logging.sh
