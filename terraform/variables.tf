@@ -39,3 +39,8 @@ variable "prefix_domain" {
   type        = string
   default     = "63.184.37.228.nip.io"
 }
+
+variable "alert_email" {
+  description = "Email address to receive security alerts"
+  type        = string
+}
