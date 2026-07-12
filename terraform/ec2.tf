@@ -21,7 +21,11 @@ resource "aws_instance" "vm" {
   }
 
   user_data = base64encode(templatefile("${path.module}/scripts/cloud-init.yaml", {
-    database_url = "postgresql://${var.db_admin_username}:${var.db_admin_password}@${aws_db_instance.main.address}/${var.db_name}?sslmode=require"
+    secret_name       = aws_secretsmanager_secret.db_password.name
+    aws_region        = var.aws_region
+    db_admin_username = var.db_admin_username
+    db_host           = aws_db_instance.main.address
+    db_name           = var.db_name
   }))
 
   depends_on = [

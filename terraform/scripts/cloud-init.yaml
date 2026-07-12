@@ -1,11 +1,5 @@
 #cloud-config
 
-# The PostgreSQL server is version 16 (postgresql.tf), but Ubuntu 22.04's
-# default "postgresql-client" package resolves to v14 — pg_dump refuses to
-# dump from a newer major server version ("aborting because of server
-# version mismatch"), which breaks Day 4's backup-before-migration step.
-# Confirmed by testing. Fix: add the PGDG apt repo and install
-# postgresql-client-16 explicitly instead of the distro's default package.
 apt:
   sources:
     pgdg.list:
@@ -19,6 +13,7 @@ packages:
   - python3-venv
   - git
   - postgresql-client-16
+  - awscli
 
 write_files:
   - path: /etc/systemd/system/learningsteps.service
@@ -30,7 +25,7 @@ write_files:
       [Service]
       Type=simple
       WorkingDirectory=/opt/learningsteps/api
-      Environment=DATABASE_URL=${database_url}
+      EnvironmentFile=/etc/learningsteps/db.env
       ExecStart=/opt/learningsteps/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
       Restart=always
       RestartSec=5
@@ -39,12 +34,19 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
+  - mkdir -p /etc/learningsteps
+  - >
+    DB_PASSWORD=$(aws secretsmanager get-secret-value
+    --secret-id ${secret_name} --region ${aws_region}
+    --query SecretString --output text)
+  - echo "DATABASE_URL=postgresql://${db_admin_username}:$DB_PASSWORD@${db_host}/${db_name}?sslmode=require" > /etc/learningsteps/db.env
+  - chmod 600 /etc/learningsteps/db.env
   - git clone https://github.com/CyberstepsDE/learningsteps.git /opt/learningsteps
   - python3 -m venv /opt/learningsteps/venv
   - /opt/learningsteps/venv/bin/pip install --upgrade pip -q
   - /opt/learningsteps/venv/bin/pip install -r /opt/learningsteps/api/requirements.txt -q
-  - until psql "${database_url}" -c '\q' 2>/dev/null; do sleep 5; done
-  - psql "${database_url}" -f /opt/learningsteps/database_setup.sql
+  - until psql "$(grep DATABASE_URL /etc/learningsteps/db.env | cut -d= -f2-)" -c '\q' 2>/dev/null; do sleep 5; done
+  - psql "$(grep DATABASE_URL /etc/learningsteps/db.env | cut -d= -f2-)" -f /opt/learningsteps/database_setup.sql
   - systemctl daemon-reload
   - systemctl enable learningsteps
   - systemctl start learningsteps
