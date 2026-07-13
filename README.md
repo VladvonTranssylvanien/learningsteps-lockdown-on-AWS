@@ -352,60 +352,11 @@ A **Zero Trust security hardening** of the LearningSteps API, rebuilt on **AWS**
 
 The detection pipeline runs on **two parallel tracks** feeding the same Network ACL:
 
-**1. WAF-Level Blocking (CrowdSec — Real-Time)**
-```mermaid
-graph LR
-    A[HTTP Request] --> B[NPMplus]
-    B --> C[Lua Inspection]
-    C --> D[CrowdSec Decision Engine]
-    D --> E[OWASP CRS + Behavioral Rules]
-    E -->|Match| F["403 Forbidden<br/>(milliseconds)"]
+1. **WAF-Level Blocking (CrowdSec — Real-Time)** — inline Lua inspection, milliseconds-level 403 response
+2. **Log-Based Detection (Lambda — Every 5 Minutes)** — CloudWatch Logs Insights query, automated NACL deny rule
+3. **Geolocation Pipeline** — CrowdSec's MaxMind GeoIP feeds the dashboard's country breakdown
 
-    classDef edge fill:#5f6368,stroke:#3c4043,color:#ffffff,stroke-width:2px
-    classDef block fill:#d93025,stroke:#8f1a12,color:#ffffff,stroke-width:2px
-    class A,B,C edge
-    class D,E,F block
-```
-
-**2. Log-Based Detection (Lambda — Every 5 Minutes)**
-```mermaid
-graph TD
-    A[nginx] --> B[JSON logs]
-    B --> C[syslog]
-    C --> D[rsyslog cleanup]
-    D --> E[CloudWatch Agent]
-    E --> F[CloudWatch Log Group]
-    F --> G["EventBridge<br/>every 5 min"]
-    G --> H[Lambda: Logs Insights Query]
-    H --> I["COUNT(403) per IP<br/>over 5 min ≥ 5"]
-    I --> J["ec2:CreateNetworkAclEntry"]
-    J --> K["Deny rule<br/>priority < 100"]
-
-    classDef pipe fill:#1a73e8,stroke:#0d47a1,color:#ffffff,stroke-width:2px
-    classDef compute fill:#f9ab00,stroke:#e37400,color:#000000,stroke-width:2px
-    classDef block fill:#d93025,stroke:#8f1a12,color:#ffffff,stroke-width:2px
-    class A,B,C,D,E,F,G pipe
-    class H,I compute
-    class J,K block
-```
-
-### Geolocation Pipeline
-
-```mermaid
-graph LR
-    A[CrowdSec Decision] --> B["MaxMind GeoIP<br/>source.cn field"]
-    B --> C["cscli export"]
-    C --> D["export-geo-metrics.sh"]
-    D --> E["CloudWatch Custom Metric<br/>BlockedAttackers per Country"]
-    E --> F["Dashboard<br/>Pie Chart"]
-
-    classDef source fill:#0f9d58,stroke:#0d652d,color:#ffffff,stroke-width:2px
-    classDef pipe fill:#5f6368,stroke:#3c4043,color:#ffffff,stroke-width:2px
-    classDef viz fill:#8430ce,stroke:#5c1f91,color:#ffffff,stroke-width:2px
-    class A,B source
-    class C,D,E pipe
-    class F viz
-```
+![Detection Pipeline](docs/screenshots/detection-pipeline.png)
 
 **Key Insight:** AWS never performs IP-to-country lookup; CrowdSec does it internally.
 
