@@ -16,8 +16,13 @@ echo "==> Installing CloudWatch Agent..."
 curl -fsSL https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -o /tmp/amazon-cloudwatch-agent.deb
 dpkg -i /tmp/amazon-cloudwatch-agent.deb
 
+if [ -z "${LOG_GROUP_NAME:-}" ]; then
+  echo "ERROR: LOG_GROUP_NAME is required" >&2
+  exit 1
+fi
+
 echo "==> Writing CloudWatch Agent config..."
-cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json << 'CONFIG_EOF'
+cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json << CONFIG_EOF
 {
   "logs": {
     "logs_collected": {
@@ -25,7 +30,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json << 'CONFIG_EOF'
         "collect_list": [
           {
             "file_path": "/var/log/nginx-json.log",
-            "log_group_name": "${log_group_name}",
+            "log_group_name": "${LOG_GROUP_NAME}",
             "log_stream_name": "{instance_id}",
             "timestamp_format": "%d/%b/%Y:%H:%M:%S"
           }
@@ -38,4 +43,4 @@ CONFIG_EOF
 
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/config.json
 
-echo "Done. CloudWatch Agent forwarding /var/log/nginx-json.log to ${log_group_name}."
+echo "Done. CloudWatch Agent forwarding /var/log/nginx-json.log to ${LOG_GROUP_NAME}."

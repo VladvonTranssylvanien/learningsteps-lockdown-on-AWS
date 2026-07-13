@@ -51,7 +51,7 @@ resource "aws_security_group" "app" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "SSH access restricted to admin IP"
+    description = "SSH access restricted to current admin IP"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -59,15 +59,18 @@ resource "aws_security_group" "app" {
   }
 
   ingress {
-    description = "HTTP"
-    from_port   = 80
-    to_port     = 80
+    description = "HTTPS restricted to VPC internal traffic"
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["10.0.0.0/16"]
   }
 
-  ingress {
-    description = "HTTPS"
+  # Egress narrowed from all-ports-all-destinations down to what the
+  # instance actually needs: package mirrors/git/pip/AWS API (80/443),
+  # DNS, NTP, and Postgres to the db tier over the VPC only.
+  egress {
+    description = "HTTPS (apt/pip/git/AWS API)"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -75,14 +78,58 @@ resource "aws_security_group" "app" {
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "HTTP (apt mirrors)"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS (tcp)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS (udp)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "NTP"
+    from_port   = 123
+    to_port     = 123
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "PostgreSQL to db tier"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
   }
 
   tags = merge(local.common_tags, {
     Name = "sg-app-${var.prefix}"
+  })
+}
+
+# CIS 5.3: the default SG of every VPC should restrict all traffic.
+# It's not used by any resource here, but locking it down closes off
+# the risk of something being attached to it by mistake later.
+resource "aws_default_security_group" "main" {
+  vpc_id = aws_vpc.main.id
+
+  tags = merge(local.common_tags, {
+    Name = "default-sg-${var.prefix}-locked"
   })
 }
 

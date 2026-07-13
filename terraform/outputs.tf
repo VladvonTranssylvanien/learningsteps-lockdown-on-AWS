@@ -1,6 +1,6 @@
 output "vm_public_ip" {
   description = "Public IP address of the EC2 instance"
-  value       = aws_instance.vm.public_ip
+  value       = aws_eip.vm.public_ip
 }
 
 output "vm_instance_id" {

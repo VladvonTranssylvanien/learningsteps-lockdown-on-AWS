@@ -2,13 +2,21 @@ resource "aws_cognito_user_pool" "main" {
   name                     = "userpool-${var.prefix}"
   username_attributes      = ["email"]
   auto_verified_attributes = ["email"]
+  deletion_protection      = "ACTIVE"
 
   password_policy {
-    minimum_length    = 8
+    minimum_length    = 14
     require_lowercase = true
     require_uppercase = true
     require_numbers   = true
-    require_symbols   = false
+    require_symbols   = true
+  }
+
+  # Enforced MFA for stronger account security.
+  mfa_configuration = "ON"
+
+  software_token_mfa_configuration {
+    enabled = true
   }
 
   tags = local.common_tags

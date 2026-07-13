@@ -47,6 +47,14 @@ resource "aws_network_acl" "app" {
     from_port  = 443
     to_port    = 443
   }
+  # Return traffic for ANY connection the instance initiates (apt, pip,
+  # git, SSM, AWS API calls, and RDS responses) lands here on an
+  # ephemeral port. NACLs are stateless, so it must be allowed from the
+  # whole internet, not just the VPC — narrowing this to 10.0.0.0/16
+  # breaks outbound connectivity entirely (SSM registration, package
+  # installs), which is what happened the first time this was scoped
+  # down. The Security Group (stateful) still restricts what actually
+  # reaches the instance service ports.
   ingress {
     rule_no    = 1030
     protocol   = "tcp"
@@ -66,6 +74,35 @@ resource "aws_network_acl" "app" {
 
   tags = merge(local.common_tags, {
     Name = "nacl-app-${var.prefix}"
+  })
+}
+
+# Db subnets get their own NACL: only Postgres from the app subnet in,
+# only the matching ephemeral-port replies out. Everything else,
+# including any direct internet path, is denied by default.
+resource "aws_network_acl" "db" {
+  vpc_id     = aws_vpc.main.id
+  subnet_ids = [aws_subnet.db_primary.id, aws_subnet.db_secondary.id]
+
+  ingress {
+    rule_no    = 100
+    protocol   = "tcp"
+    action     = "allow"
+    cidr_block = "10.0.1.0/24"
+    from_port  = 5432
+    to_port    = 5432
+  }
+  egress {
+    rule_no    = 100
+    protocol   = "tcp"
+    action     = "allow"
+    cidr_block = "10.0.1.0/24"
+    from_port  = 1024
+    to_port    = 65535
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "nacl-db-${var.prefix}"
   })
 }
 

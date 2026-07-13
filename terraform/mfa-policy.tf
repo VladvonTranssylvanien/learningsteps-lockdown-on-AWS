@@ -9,12 +9,17 @@ resource "aws_iam_policy" "require_mfa" {
         Sid    = "DenyAllExceptListedIfNoMFA"
         Effect = "Deny"
         NotAction = [
+          "iam:ChangePassword",
           "iam:CreateVirtualMFADevice",
+          "iam:DeactivateMFADevice",
+          "iam:DeleteVirtualMFADevice",
           "iam:EnableMFADevice",
+          "iam:GetAccountSummary",
           "iam:GetUser",
           "iam:ListMFADevices",
           "iam:ListVirtualMFADevices",
           "iam:ResyncMFADevice",
+          "sts:GetCallerIdentity",
           "sts:GetSessionToken"
         ]
         Resource = "*"
@@ -30,7 +35,19 @@ resource "aws_iam_policy" "require_mfa" {
   tags = local.common_tags
 }
 
-resource "aws_iam_user_policy_attachment" "vlad_admin_mfa" {
-  user       = "vlad-admin"
+# Attached at the group level (not per-user) so any admin added later
+# inherits the MFA requirement automatically instead of being missed.
+resource "aws_iam_group" "admins" {
+  name = "admins-${var.prefix}"
+}
+
+resource "aws_iam_group_policy_attachment" "admins_require_mfa" {
+  group      = aws_iam_group.admins.name
   policy_arn = aws_iam_policy.require_mfa.arn
+}
+
+resource "aws_iam_group_membership" "admins" {
+  name  = "admins-membership-${var.prefix}"
+  group = aws_iam_group.admins.name
+  users = ["vlad-admin"]
 }
