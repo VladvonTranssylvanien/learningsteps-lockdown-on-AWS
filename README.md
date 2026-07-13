@@ -173,110 +173,6 @@ This project runs entirely on **AWS Free Plan**, which structurally cannot incur
 
 ---
 
-## Day 1 — Management Access
-
-**Objective:** replace SSH keys with identity-based, keyless access, and lock the network perimeter to a single IP.
-
-- EC2 instance profile (IAM Role) grants `AmazonSSMManagedInstanceCore`, enabling `aws ssm start-session` — no SSH key ever generated, stored, or leaked.
-- Security Group and Network ACL both restrict port 22 to the administrator's IP specifically, not `0.0.0.0/0`.
-
-**Keyless login via SSM — no password, no key file:**
-
-![SSM login](docs/screenshots/day1-ssm-login.png)
-
-**SSH restricted at the network layer to a single admin IP:**
-
-![Security Group](docs/screenshots/day1-security-group.png)
-
----
-
-## Day 2 — TLS & WAF
-
-**Objective:** stand up the app's public entry point with real TLS and an active WAF, using the exact same self-hosted stack as the Azure original (NPMplus + CrowdSec).
-
-- NPMplus reverse proxy issues a Let's Encrypt certificate for `<elastic-ip>.nip.io`.
-- CrowdSec runs as a bouncer in front of NPMplus, using the real OWASP Core Rule Set (`appsec-crs`) to detect SQLi/XSS payloads.
-- The NPMplus admin panel (port 81) is never exposed publicly — reached only through an SSM port-forwarding tunnel.
-
-**SSM tunnel opened to reach the NPMplus admin panel privately:**
-
-![SSM port forwarding](docs/screenshots/start-port-forwarding.png)
-
-**Certificate issued and validated (`HTTP/2`, real Let's Encrypt cert):**
-
-![TLS verified](docs/screenshots/day2-tls-verified.png)
-
-**SQLi payload blocked by CrowdSec:**
-
-![WAF block](docs/screenshots/day2-waf-block.png)
-
-**NPMplus confirms the certificate is active (Certbot, Online):**
-
-![NPMplus TLS](docs/screenshots/day2-npmplus-tls.png)
-
----
-
-## Day 3 — Identity
-
-**Objective:** put a real identity gate in front of the application, using a "security sidecar" pattern (`oauth2-proxy`) that requires zero application code changes.
-
-- Amazon Cognito User Pool + App Client stand in for the Entra ID App Registration.
-- `oauth2-proxy` validates sessions against Cognito's OIDC endpoint and is wired into NPMplus via its **Auth Request** feature.
-- Confirmed end-to-end: anonymous requests get `302` to the Cognito hosted login page; authenticated sessions reach the app.
-
-**Authenticated session reaching the application (Swagger UI):**
-
-![Authenticated Swagger UI](docs/screenshots/day3-authenticated-app.png)
-
----
-
-## Day 4 — Data Isolation
-
-**Objective:** pull the database off the public internet, with zero data loss.
-
-- Backed up the database (`pg_dump`) before any change.
-- Set `publicly_accessible = false` on the RDS instance.
-- Confirmed the laptop can no longer resolve or reach the database, while the application (through the VM) keeps working with the exact same data.
-
-**Connection times out from the laptop — RDS is no longer publicly reachable:**
-
-![Connection failed](docs/screenshots/day4-connection-failed.png)
-
-**Application still serves the exact same data through the VM:**
-
-![Data intact](docs/screenshots/day4-data-intact.png)
-
-**RDS confirmed private and encrypted:**
-
-![RDS private](docs/screenshots/day4-rds-private.png)
-
----
-
-## Day 5 — Monitoring & Incident Response
-
-**Objective:** verify the automated SOC pipeline actually catches and responds to an attack, not just that it's configured.
-
-The pipeline: `nginx access log → JSON forwarder → CloudWatch Logs → Logs Insights query / Lambda (every 5 min) → Network ACL deny rule`.
-
-1. Generated a real SQLi attack from an authenticated browser session.
-2. Validated the detection query manually in CloudWatch Logs Insights.
-3. Let the scheduled Lambda run and confirmed it blocked the attacking IP automatically — and, live, also caught a **real, unprompted attacker** from a different IP during testing.
-4. Confirmed the block was a genuine network-layer cutoff (`curl` timeout), not just a logged event.
-
-**CloudWatch Logs Insights confirms the detection query (22 blocks from the same IP):**
-
-![Logs Insights](docs/screenshots/day5-logs-insights.png)
-
-**Lambda's automatic Network ACL deny rules — the test IP (`87.149.114.205`) and a real, unprompted attacker (`157.143.3.35`) caught live, both at rule numbers below 100 so they always evaluate before the baseline Allow rules:**
-
-![NACL block](docs/screenshots/day5-nacl-block.png)
-
-**Geographic dashboard of blocked attackers, built from CrowdSec decision data:**
-
-![Dashboard](docs/screenshots/day5-dashboard.png)
-
----
-
 ## How Attacker Detection & Geolocation Works
 
 The detection pipeline runs on two parallel tracks that feed the same Network ACL:
@@ -341,6 +237,37 @@ terraform/
 
 ---
 
+## Evidence / Screenshots
+
+### Day 1 — Management Access
+**What this proves:** SSM session to the instance and network-level SSH restriction.
+![SSM login](docs/screenshots/day1-ssm-login.png)
+![Security Group](docs/screenshots/day1-security-group.png)
+
+### Day 2 — TLS & WAF
+**What this proves:** TLS certificate, verified endpoint, and WAF block examples.
+![NPMplus TLS](docs/screenshots/day2-npmplus-tls.png)
+![TLS verified](docs/screenshots/day2-tls-verified.png)
+![WAF block](docs/screenshots/day2-waf-block.png)
+
+### Day 3 — Identity
+**What this proves:** Cognito / oauth2-proxy authenticated session reaching the app.
+![Authenticated app](docs/screenshots/day3-authenticated-app.png)
+
+### Day 4 — Data Isolation
+**What this proves:** RDS made private and application still works; laptop cannot reach DB.
+![RDS private](docs/screenshots/day4-rds-private.png)
+![Data intact](docs/screenshots/day4-data-intact.png)
+![Connection failed from laptop](docs/screenshots/day4-connection-failed.png)
+
+### Day 5 — Detection & Response
+**What this proves:** Logs → Insights detection, Lambda auto-block, dashboard of blocked IPs.
+![CloudWatch Logs Insights](docs/screenshots/day5-logs-insights.png)
+![Network ACL block](docs/screenshots/day5-nacl-block.png)
+![Dashboard](docs/screenshots/day5-dashboard.png)
+
+---
+
 ## Deploying This Yourself
 
 ```bash
@@ -373,33 +300,4 @@ terraform destroy
 
 Everything, including the CloudTrail S3 bucket (`force_destroy = true`), is designed to tear down cleanly with no manual cleanup required.
 
-## Evidence / Screenshots
-
-### Day 1 — Management Access
-**What this proves:** SSM session to the instance and network-level SSH restriction.
-![SSM login](docs/screenshots/day1-ssm-login.png)
-![Security Group](docs/screenshots/day1-security-group.png)
-
-### Day 2 — TLS & WAF
-**What this proves:** TLS certificate, verified endpoint, and WAF block examples.
-![NPMplus TLS](docs/screenshots/day2-npmplus-tls.png)
-![TLS verified](docs/screenshots/day2-tls-verified.png)
-![WAF block](docs/screenshots/day2-waf-block.png)
-
-### Day 3 — Identity
-**What this proves:** Cognito / oauth2-proxy authenticated session reaching the app.
-![Authenticated app](docs/screenshots/day3-authenticated-app.png)
-
-### Day 4 — Data Isolation
-**What this proves:** RDS made private and application still works; laptop cannot reach DB.
-![RDS private](docs/screenshots/day4-rds-private.png)
-![Data intact](docs/screenshots/day4-data-intact.png)
-![Connection failed from laptop](docs/screenshots/day4-connection-failed.png)
-
-### Day 5 — Detection & Response
-**What this proves:** Logs → Insights detection, Lambda auto-block, dashboard of blocked IPs.
-![CloudWatch Logs Insights](docs/screenshots/day5-logs-insights.png)
-![Network ACL block](docs/screenshots/day5-nacl-block.png)
-![Dashboard](docs/screenshots/day5-dashboard.png)
-![Port forwarding (admin tunnel)](docs/screenshots/start-port-forwarding.png)
 
