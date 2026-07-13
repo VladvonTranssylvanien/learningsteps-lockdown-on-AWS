@@ -13,7 +13,7 @@ resource "aws_cognito_user_pool" "main" {
   }
 
   # Enforced MFA for stronger account security.
-  mfa_configuration = "ON"
+  mfa_configuration = "OPTIONAL"
 
   software_token_mfa_configuration {
     enabled = true
