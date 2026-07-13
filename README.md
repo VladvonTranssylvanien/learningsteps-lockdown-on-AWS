@@ -63,6 +63,7 @@ graph TB
         subgraph DBSubnet["subnet-db-primary / db-secondary"]
             RDS[("🗄️ RDS PostgreSQL<br/>publicly_accessible = false<br/>KMS-encrypted, own NACL")]
         end
+        Flow["🔍 VPC Flow Logs<br/>Packet-level visibility"]
     end
 
     Cognito["👤 Amazon Cognito<br/>User Pool + App Client"]
@@ -73,7 +74,6 @@ graph TB
     SNS["📧 SNS<br/>Security alerts"]
     EIP["📍 Elastic IP<br/>Stable address"]
     Backup["💾 AWS Backup<br/>Vault Lock (immutable)"]
-    Flow["🔍 VPC Flow Logs<br/>Packet-level visibility"]
     Patch["🩹 SSM Patch Manager<br/>Weekly OS patching"]
 
     Internet -->|HTTPS| EIP --> NACL --> SG_APP --> EC2
@@ -84,10 +84,10 @@ graph TB
     Lambda -->|auto-block| NACL
     EC2 -.->|private| RDS
     CT -->|security metrics| SNS
-    RDS -.-> Backup
-    EC2 -.-> Backup
-    VPC -.-> Flow
-    EC2 -.-> Patch
+    RDS -.->|daily backup| Backup
+    EC2 -.->|daily backup| Backup
+    VPC -.->|flow records| Flow
+    EC2 -.->|weekly patch| Patch
 ```
 
 ### Security Layers (Defense in Depth)
