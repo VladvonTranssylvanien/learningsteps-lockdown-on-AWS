@@ -424,42 +424,58 @@ graph TB
 The detection pipeline runs on **two parallel tracks** feeding the same Network ACL:
 
 **1. WAF-Level Blocking (CrowdSec — Real-Time)**
-```
-HTTP Request → NPMplus → Lua inspection → CrowdSec Decision Engine
-                                    ↓
-                            OWASP CRS + Behavioral Rules
-                                    ↓
-                            Match? → 403 (milliseconds)
+```mermaid
+graph LR
+    A[HTTP Request] --> B[NPMplus]
+    B --> C[Lua Inspection]
+    C --> D[CrowdSec Decision Engine]
+    D --> E[OWASP CRS + Behavioral Rules]
+    E -->|Match| F["403 Forbidden<br/>(milliseconds)"]
+
+    classDef edge fill:#5f6368,stroke:#3c4043,color:#ffffff,stroke-width:2px
+    classDef block fill:#d93025,stroke:#8f1a12,color:#ffffff,stroke-width:2px
+    class A,B,C edge
+    class D,E,F block
 ```
 
 **2. Log-Based Detection (Lambda — Every 5 Minutes)**
-```
-nginx → JSON logs → syslog → rsyslog cleanup → CloudWatch Agent
-                                                    ↓
-                                            CloudWatch Log Group
-                                                    ↓
-                                        EventBridge (every 5 min)
-                                                    ↓
-                                    Lambda: Logs Insights Query
-                                            ↓
-                            COUNT(403) per IP over 5 min > 5
-                                            ↓
-                                    ec2:CreateNetworkAclEntry
-                                            ↓
-                                Deny rule at priority < 100
+```mermaid
+graph TD
+    A[nginx] --> B[JSON logs]
+    B --> C[syslog]
+    C --> D[rsyslog cleanup]
+    D --> E[CloudWatch Agent]
+    E --> F[CloudWatch Log Group]
+    F --> G["EventBridge<br/>every 5 min"]
+    G --> H[Lambda: Logs Insights Query]
+    H --> I["COUNT(403) per IP<br/>over 5 min ≥ 5"]
+    I --> J["ec2:CreateNetworkAclEntry"]
+    J --> K["Deny rule<br/>priority < 100"]
+
+    classDef pipe fill:#1a73e8,stroke:#0d47a1,color:#ffffff,stroke-width:2px
+    classDef compute fill:#f9ab00,stroke:#e37400,color:#000000,stroke-width:2px
+    classDef block fill:#d93025,stroke:#8f1a12,color:#ffffff,stroke-width:2px
+    class A,B,C,D,E,F,G pipe
+    class H,I compute
+    class J,K block
 ```
 
 ### Geolocation Pipeline
 
-```
-CrowdSec Decision → MaxMind GeoIP → source.cn field → cscli export
-                                                           ↓
-                                            geo-export/export-geo-metrics.sh
-                                                           ↓
-                                            CloudWatch Custom Metric
-                                            (BlockedAttackers per Country)
-                                                           ↓
-                                                    Dashboard Pie Chart
+```mermaid
+graph LR
+    A[CrowdSec Decision] --> B["MaxMind GeoIP<br/>source.cn field"]
+    B --> C["cscli export"]
+    C --> D["export-geo-metrics.sh"]
+    D --> E["CloudWatch Custom Metric<br/>BlockedAttackers per Country"]
+    E --> F["Dashboard<br/>Pie Chart"]
+
+    classDef source fill:#0f9d58,stroke:#0d652d,color:#ffffff,stroke-width:2px
+    classDef pipe fill:#5f6368,stroke:#3c4043,color:#ffffff,stroke-width:2px
+    classDef viz fill:#8430ce,stroke:#5c1f91,color:#ffffff,stroke-width:2px
+    class A,B source
+    class C,D,E pipe
+    class F viz
 ```
 
 **Key Insight:** AWS never performs IP-to-country lookup; CrowdSec does it internally.
