@@ -54,67 +54,73 @@ A **Zero Trust security hardening** of the LearningSteps API, rebuilt on **AWS**
 graph TB
     Internet((🌐 Internet))
 
-    subgraph AWS["AWS Account — eu-central-1"]
+    subgraph VPC["🏢 VPC — 10.0.0.0/16"]
         direction TB
 
-        subgraph Edge["Edge & Network"]
+        subgraph PublicTier["Public Subnet — 10.0.1.0/24"]
             direction LR
-            EIP["📍 Elastic IP"]
             NACL["🛡️ Network ACL"]
             SG["🔒 Security Group"]
+            EC2["💻 EC2 t3.small<br/>NPMplus · CrowdSec<br/>oauth2-proxy · FastAPI"]
         end
 
-        subgraph Compute["Compute & Data"]
+        subgraph PrivateTier["Private DB Subnets — 10.0.2.0/24, 10.0.3.0/24"]
             direction LR
-            EC2["💻 EC2 t3.small<br/>NPMplus + CrowdSec<br/>oauth2-proxy + FastAPI"]
-            RDS[("🗄️ RDS PostgreSQL<br/>private, KMS-encrypted")]
+            DBNACL["🛡️ DB Network ACL"]
+            RDS[("🗄️ RDS PostgreSQL<br/>KMS-encrypted<br/>no public access")]
         end
 
-        subgraph Identity["Identity & Secrets"]
-            direction LR
+        Flow["🔍 VPC Flow Logs"]
+    end
+
+    subgraph Platform["Supporting AWS Services"]
+        direction LR
+
+        subgraph IDBlock["Identity"]
             Cognito["👤 Cognito"]
             Secrets["🔐 Secrets Manager"]
         end
 
-        subgraph Detect["Detection & Response"]
-            direction LR
-            CW["📊 CloudWatch<br/>11 Alarms + Dashboard"]
-            Lambda["⚡ Lambda<br/>WAF detector"]
+        subgraph DetectBlock["Detection"]
+            CW["📊 CloudWatch<br/>11 Alarms"]
+            Lambda["⚡ Lambda"]
         end
 
-        subgraph Audit["Audit, Backup & Ops"]
-            direction LR
+        subgraph AuditBlock["Audit & Resilience"]
             CT["📝 CloudTrail"]
             SNS["📧 SNS"]
-            Backup["💾 AWS Backup<br/>Vault Lock"]
-            Flow["🔍 VPC Flow Logs"]
+            Backup["💾 AWS Backup"]
             Patch["🩹 Patch Manager"]
         end
     end
 
+    EIP["📍 Elastic IP"]
+
     Internet -->|HTTPS| EIP --> NACL --> SG --> EC2
+    EC2 -.->|5432, private| DBNACL -.-> RDS
     EC2 --> Secrets
     EC2 --> Cognito
     EC2 --> CW
     CW -->|every 5 min| Lambda
-    Lambda -->|auto-block| NACL
-    EC2 -.->|private only| RDS
+    Lambda -.->|auto-block| NACL
     CT --> SNS
     EC2 -.-> Backup
     RDS -.-> Backup
     EC2 -.-> Patch
 
-    classDef edge fill:#5f6368,stroke:#3c4043,color:#ffffff,stroke-width:2px
+    classDef net fill:#5f6368,stroke:#2b2e30,color:#ffffff,stroke-width:2px
     classDef compute fill:#1a73e8,stroke:#0d47a1,color:#ffffff,stroke-width:2px
+    classDef data fill:#0f9d58,stroke:#0d652d,color:#ffffff,stroke-width:2px
     classDef identity fill:#e8eaed,stroke:#9aa0a6,color:#000000,stroke-width:1px
     classDef detect fill:#f9ab00,stroke:#e37400,color:#000000,stroke-width:2px
-    classDef audit fill:#0f9d58,stroke:#0d652d,color:#ffffff,stroke-width:2px
+    classDef audit fill:#8430ce,stroke:#5c1f91,color:#ffffff,stroke-width:2px
 
-    class EIP,NACL,SG edge
-    class EC2,RDS compute
+    class NACL,SG,DBNACL,EIP,Flow net
+    class EC2 compute
+    class RDS data
     class Cognito,Secrets identity
     class CW,Lambda detect
-    class CT,SNS,Backup,Flow,Patch audit
+    class CT,SNS,Backup,Patch audit
 ```
 
 ### Security Layers (Defense in Depth)
