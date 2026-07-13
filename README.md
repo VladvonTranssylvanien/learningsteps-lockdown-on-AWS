@@ -54,40 +54,67 @@ A **Zero Trust security hardening** of the LearningSteps API, rebuilt on **AWS**
 graph TB
     Internet((🌐 Internet))
 
-    subgraph VPC["VPC 10.0.0.0/16"]
-        subgraph AppSubnet["subnet-app 10.0.1.0/24"]
-            NACL["🛡️ Network ACL<br/>SSH restricted<br/>Auto-block deny rules"]
-            SG_APP["🔒 Security Group<br/>SSH: admin IP only<br/>Egress restricted"]
+    subgraph AWS["AWS Account — eu-central-1"]
+        direction TB
+
+        subgraph Edge["Edge & Network"]
+            direction LR
+            EIP["📍 Elastic IP"]
+            NACL["🛡️ Network ACL"]
+            SG["🔒 Security Group"]
+        end
+
+        subgraph Compute["Compute & Data"]
+            direction LR
             EC2["💻 EC2 t3.small<br/>NPMplus + CrowdSec<br/>oauth2-proxy + FastAPI"]
+            RDS[("🗄️ RDS PostgreSQL<br/>private, KMS-encrypted")]
         end
-        subgraph DBSubnet["subnet-db-primary / db-secondary"]
-            RDS[("🗄️ RDS PostgreSQL<br/>publicly_accessible = false<br/>KMS-encrypted, own NACL")]
+
+        subgraph Identity["Identity & Secrets"]
+            direction LR
+            Cognito["👤 Cognito"]
+            Secrets["🔐 Secrets Manager"]
         end
-        Flow["🔍 VPC Flow Logs<br/>Packet-level visibility"]
+
+        subgraph Detect["Detection & Response"]
+            direction LR
+            CW["📊 CloudWatch<br/>11 Alarms + Dashboard"]
+            Lambda["⚡ Lambda<br/>WAF detector"]
+        end
+
+        subgraph Audit["Audit, Backup & Ops"]
+            direction LR
+            CT["📝 CloudTrail"]
+            SNS["📧 SNS"]
+            Backup["💾 AWS Backup<br/>Vault Lock"]
+            Flow["🔍 VPC Flow Logs"]
+            Patch["🩹 Patch Manager"]
+        end
     end
 
-    Cognito["👤 Amazon Cognito<br/>User Pool + App Client"]
-    Secrets["🔐 Secrets Manager<br/>DB password + CrowdSec key"]
-    Lambda["⚡ Lambda<br/>WAF attack detector"]
-    CW["📊 CloudWatch<br/>Logs + 11 Alarms + Dashboard"]
-    CT["📝 CloudTrail<br/>Multi-region, KMS-encrypted"]
-    SNS["📧 SNS<br/>Security alerts"]
-    EIP["📍 Elastic IP<br/>Stable address"]
-    Backup["💾 AWS Backup<br/>Vault Lock (immutable)"]
-    Patch["🩹 SSM Patch Manager<br/>Weekly OS patching"]
-
-    Internet -->|HTTPS| EIP --> NACL --> SG_APP --> EC2
-    EC2 -->|IAM Role| Secrets
-    EC2 -->|OIDC| Cognito
-    EC2 -->|JSON logs| CW
-    CW -->|EventBridge 5min| Lambda
+    Internet -->|HTTPS| EIP --> NACL --> SG --> EC2
+    EC2 --> Secrets
+    EC2 --> Cognito
+    EC2 --> CW
+    CW -->|every 5 min| Lambda
     Lambda -->|auto-block| NACL
-    EC2 -.->|private| RDS
-    CT -->|security metrics| SNS
-    RDS -.->|daily backup| Backup
-    EC2 -.->|daily backup| Backup
-    VPC -.->|flow records| Flow
-    EC2 -.->|weekly patch| Patch
+    EC2 -.->|private only| RDS
+    CT --> SNS
+    EC2 -.-> Backup
+    RDS -.-> Backup
+    EC2 -.-> Patch
+
+    classDef edge fill:#5f6368,stroke:#3c4043,color:#ffffff,stroke-width:2px
+    classDef compute fill:#1a73e8,stroke:#0d47a1,color:#ffffff,stroke-width:2px
+    classDef identity fill:#e8eaed,stroke:#9aa0a6,color:#000000,stroke-width:1px
+    classDef detect fill:#f9ab00,stroke:#e37400,color:#000000,stroke-width:2px
+    classDef audit fill:#0f9d58,stroke:#0d652d,color:#ffffff,stroke-width:2px
+
+    class EIP,NACL,SG edge
+    class EC2,RDS compute
+    class Cognito,Secrets identity
+    class CW,Lambda detect
+    class CT,SNS,Backup,Flow,Patch audit
 ```
 
 ### Security Layers (Defense in Depth)
