@@ -372,3 +372,34 @@ terraform destroy
 ```
 
 Everything, including the CloudTrail S3 bucket (`force_destroy = true`), is designed to tear down cleanly with no manual cleanup required.
+
+## Evidence / Screenshots
+
+### Day 1 — Management Access
+**What this proves:** SSM session to the instance and network-level SSH restriction.
+![SSM login](docs/screenshots/day1-ssm-login.png)
+![Security Group](docs/screenshots/day1-security-group.png)
+
+### Day 2 — TLS & WAF
+**What this proves:** TLS certificate, verified endpoint, and WAF block examples.
+![NPMplus TLS](docs/screenshots/day2-npmplus-tls.png)
+![TLS verified](docs/screenshots/day2-tls-verified.png)
+![WAF block](docs/screenshots/day2-waf-block.png)
+
+### Day 3 — Identity
+**What this proves:** Cognito / oauth2-proxy authenticated session reaching the app.
+![Authenticated app](docs/screenshots/day3-authenticated-app.png)
+
+### Day 4 — Data Isolation
+**What this proves:** RDS made private and application still works; laptop cannot reach DB.
+![RDS private](docs/screenshots/day4-rds-private.png)
+![Data intact](docs/screenshots/day4-data-intact.png)
+![Connection failed from laptop](docs/screenshots/day4-connection-failed.png)
+
+### Day 5 — Detection & Response
+**What this proves:** Logs → Insights detection, Lambda auto-block, dashboard of blocked IPs.
+![CloudWatch Logs Insights](docs/screenshots/day5-logs-insights.png)
+![Network ACL block](docs/screenshots/day5-nacl-block.png)
+![Dashboard](docs/screenshots/day5-dashboard.png)
+![Port forwarding (admin tunnel)](docs/screenshots/start-port-forwarding.png)
+
