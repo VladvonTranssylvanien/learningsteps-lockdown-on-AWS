@@ -30,3 +30,26 @@ resource "aws_iam_role_policy" "vm_read_db_secret" {
     ]
   })
 }
+
+resource "aws_secretsmanager_secret" "crowdsec_bouncer_key" {
+  name        = "crowdsec-bouncer-key-${var.prefix}"
+  description = "CrowdSec bouncer API key for NPMplus WAF integration"
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy" "vm_read_crowdsec_secret" {
+  name = "read-crowdsec-secret"
+  role = aws_iam_role.vm.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "secretsmanager:GetSecretValue"
+        Resource = aws_secretsmanager_secret.crowdsec_bouncer_key.arn
+      }
+    ]
+  })
+}
