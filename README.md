@@ -493,7 +493,7 @@ terraform destroy
 | Skill | Evidence |
 |-------|----------|
 | **AWS Services** | VPC, EC2, RDS, Cognito, IAM, KMS, CloudWatch, Lambda, Secrets Manager, CloudTrail, SNS, S3, AWS Backup, SSM |
-| **Infrastructure as Code** | Complete Terraform implementation (19+ files) |
+| **Infrastructure as Code** | Complete Terraform implementation (21 files, 104 AWS resources) |
 | **Multi-Cloud Translation** | Azure → AWS service mapping with comparative analysis |
 | **Cost Optimization** | Near-zero-cost design; the two paid line items (KMS keys) documented and justified |
 
